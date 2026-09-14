@@ -3,19 +3,17 @@
 ## Current status
 
 - Repository: https://github.com/Apps24/folio-reader (created by owner, currently public).
-- Supabase integration is implemented; no production database has been selected or provisioned.
-- Connected Supabase account currently lists no projects and one organization, **Apps24's Org** (`fupmlwixivzjfvgffxis`). Project creation requires the owner's organization choice and review of the quoted project cost.
-- Local database security tests and production build pass. Live save/retrieve, email, billing and voice checks remain pending.
+- Supabase project: **folio-reader** (`mdlyiuwyjmwnuvmaskzq`) in Mumbai, provisioned in **Apps24's Org** on the Free plan.
+- Both checked-in migrations are applied. Security advisors report no findings; the private `epubs` bucket is configured for EPUB files up to 50 MiB.
+- Local database security tests, CI and the production build pass. Live account/save/retrieve, email, billing and voice checks remain pending.
 
-## 1. Create the Supabase project
+## 1. Supabase project (complete)
 
-Confirm whether to create **folio-reader** in **Apps24's Org**, preferably Mumbai (`ap-south-1`) for the owner's region. Alternatively create it yourself in the Supabase dashboard and send the project URL. Do not send your database password or secret key in chat.
-
-Before creating, check the organization's plan and available project quota. App Free/Plus membership is independent of the Supabase hosting plan. We have not approved or activated paid infrastructure.
+Project URL: `https://mdlyiuwyjmwnuvmaskzq.supabase.co`. App Free/Plus membership is independent of the Supabase hosting plan. No paid Supabase infrastructure was activated.
 
 ## 2. Apply database and Storage setup
 
-Apply `supabase/migrations/20260914115404_folio_accounts_books.sql` once to the dedicated project using the SQL Editor or the connected database tools. This creates all app tables, RLS policies, a private `epubs` bucket (50 MiB limit) and service-only voice quota functions. Do not manually make the bucket public.
+The migrations in `supabase/migrations` have been applied to the dedicated project. They create all app tables, RLS policies, a private `epubs` bucket (50 MiB limit), the required foreign-key index and service-only voice quota functions. Do not manually make the bucket public.
 
 The migration includes explicit role grants required by current Data API defaults. All exposed tables have RLS. The private book-limit trigger verifies the signed-in owner and serializes reservations. User-editable Auth metadata is used only for a display name, never for paid access.
 

@@ -21,7 +21,7 @@ The browser uses a publishable key. The Worker verifies its access token with Su
 
 ## Development
 
-Use Node 24. Run `npm ci` and `npm run check`. Copy `.dev.vars.example` to `.dev.vars` and fill the three Supabase values after provisioning the project and applying the migration. Run `npm run local`; for frontend hot reload run `npm run dev` in a second terminal. AI requires Cloudflare authorization even during local development.
+Use Node 24. Run `npm ci` and `npm run check`. Copy `.dev.vars.example` to `.dev.vars` and fill the three Supabase values from the provisioned `folio-reader` project (`mdlyiuwyjmwnuvmaskzq`). Run `npm run local`; for frontend hot reload run `npm run dev` in a second terminal. AI requires Cloudflare authorization even during local development.
 
 See [deployment and account setup](docs/DEPLOYMENT.md) for exact next steps and required secrets.
 
