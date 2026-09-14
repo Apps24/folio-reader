@@ -1,0 +1,4 @@
+import {authenticatedFetch,getSupabase} from './supabase';
+export async function api<T=any>(path:string,method='GET',data?:unknown):Promise<T>{if(path==='/logout'){const {error}=await (await getSupabase()).auth.signOut();if(error)throw error;return {ok:true} as T}const r=await authenticatedFetch(`/api${path}`,{method,credentials:'same-origin',headers:data?{'Content-Type':'application/json'}:undefined,body:data?JSON.stringify(data):undefined});const result=await r.json() as T & {error?:string};if(!r.ok)throw new Error(result.error||`Request failed (${r.status})`);return result}
+export type Account={id:string;name:string;email:string;plan:'free'|'paid';voiceUsed:number;voiceLimit:number;billingReady:boolean};
+export type ShelfBook={id:string;title:string;author:string;size:number;created_at:string};

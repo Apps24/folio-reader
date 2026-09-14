@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+supabase/.temp/
+supabase/.branches/
+.env*
+!.env.example
+wrangler.production.json
+*.epub
+*.mp3

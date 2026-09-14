@@ -1,0 +1,53 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync,readdirSync} from 'node:fs';
+import {PGlite} from '@electric-sql/pglite';
+test('Postgres enforces ownership, book cap, private storage and paid privileges',async()=>{
+ const db=new PGlite();
+ try {
+  // Platform fixture; execute the real migration unchanged.
+  await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
+   create schema auth; create schema storage;
+   grant usage on schema public,auth,storage to anon,authenticated,service_role;
+   create table auth.users(id uuid primary key);
+   create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+   create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
+   create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text);
+   alter table storage.objects enable row level security;
+   grant select,insert,delete on storage.objects to authenticated;
+   create function storage.foldername(text) returns text[] language sql immutable as $$select string_to_array($1,'/')$$;`);
+  const directory=new URL('../supabase/migrations/',import.meta.url);
+  for(const file of readdirSync(directory).filter(f=>f.endsWith('.sql')).sort())await db.exec(readFileSync(new URL(file,directory),'utf8'));
+  const a='11111111-1111-4111-8111-111111111111',b='22222222-2222-4222-8222-222222222222';
+  await db.query('insert into auth.users values ($1),($2)',[a,b]);
+  await db.query('insert into public.entitlements(user_id) values ($1),($2)',[a,b]);
+  const asUser=async(id:string)=>{await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);await db.exec('set role authenticated')};
+  await asUser(a);
+  const add=async(owner=a)=>{const id=crypto.randomUUID();await db.query('insert into public.books(id,user_id,title,object_key,size) values($1,$2,$3,$4,4)',[id,owner,'Test',`${owner}/${id}.epub`]);return id};
+  const first=await add();for(let i=1;i<5;i++)await add();
+  await assert.rejects(()=>add(),/five books/);
+  await assert.rejects(()=>add(b),/owner|row-level/i);
+  await assert.rejects(()=>db.query('update public.entitlements set paid_until=9999999999 where user_id=$1',[a]),/permission denied/);
+  await assert.rejects(()=>db.query("select public.reserve_voice($1,'2026-09',5,100)",[a]),/permission denied/);
+  await db.query('insert into public.reading_state(book_id,user_id,data) values($1,$2,$3)',[first,a,JSON.stringify({chapter:3,notes:['hello']})]);
+  await db.query('insert into storage.objects(bucket_id,name) values($1,$2)',['epubs',`${a}/${first}.epub`]);
+  await assert.rejects(()=>db.query('insert into storage.objects(bucket_id,name) values($1,$2)',['epubs',`${a}/${crypto.randomUUID()}.epub`]),/row-level/);
+  await asUser(b);
+  assert.equal((await db.query('select * from public.books')).rows.length,0);
+  assert.equal((await db.query('select * from public.reading_state')).rows.length,0);
+  assert.equal((await db.query('select * from storage.objects')).rows.length,0);
+  await assert.rejects(()=>db.query('insert into public.reading_state(book_id,user_id,data) values($1,$2,$3)',[first,b,'{}']),/foreign key|duplicate/);
+  await asUser(a);
+  assert.deepEqual((await db.query<{data:unknown}>('select data from public.reading_state')).rows[0].data,{chapter:3,notes:['hello']});
+  await db.exec('reset role');
+  await db.query('update public.entitlements set paid_until=9999999999 where user_id=$1',[a]);
+  await asUser(a);await add();
+  await db.exec('reset role;set role service_role');
+  assert.equal((await db.query<{ok:boolean}>("select public.reserve_voice($1,'2026-09',6,10) as ok",[a])).rows[0].ok,true);
+  assert.equal((await db.query<{ok:boolean}>("select public.reserve_voice($1,'2026-09',6,10) as ok",[a])).rows[0].ok,false);
+  await db.query("select public.refund_voice($1,'2026-09',6)",[a]);
+  assert.equal((await db.query<{characters:number}>('select characters from public.voice_usage where user_id=$1',[a])).rows[0].characters,0);
+  await asUser(a);await db.query('delete from public.books where id=$1',[first]);
+  assert.equal((await db.query('select * from public.reading_state')).rows.length,0);
+ } finally {await db.close()}
+});
