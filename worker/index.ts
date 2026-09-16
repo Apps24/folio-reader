@@ -45,7 +45,7 @@ async function api(r:Request,env:Env):Promise<Response>{
   if(path==='/api/books'&&r.method==='GET'){const result=await checked(db.from('books').select('id,title,author,size,created_at').eq('user_id',user.id).eq('ready',true).order('created_at',{ascending:false}));return json(result)}
   if(path==='/api/books'&&r.method==='POST'){
     const data=await body(r);const title=String(data.title||'').trim().slice(0,300),author=String(data.author||'').slice(0,200),size=Number(data.size);
-    if(!title||!Number.isInteger(size)||size<1||size>50*1024*1024)return err('Choose an EPUB smaller than 50 MB.');
+    if(!title||!Number.isInteger(size)||size<1||size>75*1024*1024)return err('Choose an EPUB smaller than 75 MB.');
     const id=crypto.randomUUID(),key=`${user.id}/${id}.epub`;
     // Atomic conditional INSERT includes pending uploads, preventing parallel requests from exceeding five slots.
     const {error}=await db.from('books').insert({id,user_id:user.id,title,author,object_key:key,size});
@@ -57,7 +57,7 @@ async function api(r:Request,env:Env):Promise<Response>{
     if(!match[2]&&r.method==='DELETE'){await checked(db.storage.from('epubs').remove([book.object_key]));await checked(db.from('books').delete().eq('id',book.id).eq('user_id',user.id));return json({ok:true})}
     if(match[2]==='file'&&r.method==='PUT'){
       if(book.ready)return err('This upload is already complete.',409);
-      const file=await bytes(r,50*1024*1024);if(file.length!==book.size||file[0]!==80||file[1]!==75)return err('Invalid EPUB upload.');
+      const file=await bytes(r,75*1024*1024);if(file.length!==book.size||file[0]!==80||file[1]!==75)return err('Invalid EPUB upload.');
       await checked(db.storage.from('epubs').upload(book.object_key,file,{contentType:'application/epub+zip',upsert:false}));await checked(db.from('books').update({ready:true}).eq('id',book.id));return json({ok:true});
     }
     if(match[2]==='file'&&r.method==='GET'){const {data:file,error}=await db.storage.from('epubs').download(book.object_key);return file&&!error?new Response(file,{headers:{'Content-Type':'application/epub+zip','Cache-Control':'private, no-store'}}):err('File unavailable',404)}

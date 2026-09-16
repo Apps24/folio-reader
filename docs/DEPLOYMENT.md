@@ -4,7 +4,7 @@
 
 - Repository: https://github.com/Apps24/folio-reader (created by owner, currently public).
 - Supabase project: **folio-reader** (`mdlyiuwyjmwnuvmaskzq`) in Mumbai, provisioned in **Apps24's Org** on the Free plan.
-- Both checked-in migrations are applied. Security advisors report no findings; the private `epubs` bucket is configured for EPUB files up to 50 MiB.
+- All checked-in migrations are applied. Security advisors report no findings; the private `epubs` bucket is configured for EPUB files up to 75 MiB.
 - Local database security tests, CI and the production build pass. The public Supabase URL and publishable key are deployed with the Worker; email delivery, billing and voice checks remain pending.
 
 ## 1. Supabase project (complete)
@@ -13,7 +13,7 @@ Project URL: `https://mdlyiuwyjmwnuvmaskzq.supabase.co`. App Free/Plus membershi
 
 ## 2. Apply database and Storage setup
 
-The migrations in `supabase/migrations` have been applied to the dedicated project. They create all app tables, RLS policies, a private `epubs` bucket (50 MiB limit), the required foreign-key index and service-only voice quota functions. Do not manually make the bucket public.
+The migrations in `supabase/migrations` have been applied to the dedicated project. They create all app tables, RLS policies, a private `epubs` bucket (75 MiB limit), the required foreign-key index and service-only voice quota functions. Do not manually make the bucket public.
 
 The migration includes explicit role grants required by current Data API defaults. All exposed tables have RLS. The private book-limit trigger verifies the signed-in owner and serializes reservations. User-editable Auth metadata is used only for a display name, never for paid access.
 

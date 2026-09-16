@@ -6,7 +6,7 @@ function xml(text:string){const doc=new DOMParser().parseFromString(text,'applic
 function pathAt(base:string,href:string){const parts=base.split('/');parts.pop();for(const part of decodeURIComponent(href.split('#')[0]).split('/')){if(part==='..')parts.pop();else if(part&&part!=='.')parts.push(part)}return parts.join('/')}
 async function text(zip:JSZip,path:string){const entry=zip.file(path);if(!entry)throw new Error(`EPUB resource is missing: ${path}`);const raw=await entry.async('string');if(raw.length>5_000_000)throw new Error('This EPUB section is too large.');return raw}
 export async function openEpub(file:Blob):Promise<Book>{
-  if(file.size>50*1024*1024)throw new Error('Choose an EPUB under 50 MB.');
+  if(file.size>75*1024*1024)throw new Error('Choose an EPUB under 75 MB.');
   const archive=await JSZip.loadAsync(await file.arrayBuffer());
   if(Object.keys(archive.files).length>10000)throw new Error('This EPUB has too many resources.');
   const container=xml(await text(archive,'META-INF/container.xml'));

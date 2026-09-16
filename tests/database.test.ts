@@ -21,6 +21,7 @@ test('Postgres enforces ownership, book cap, private storage and paid privileges
   const a='11111111-1111-4111-8111-111111111111',b='22222222-2222-4222-8222-222222222222';
   await db.query('insert into auth.users values ($1),($2)',[a,b]);
   await db.query('insert into public.entitlements(user_id) values ($1),($2)',[a,b]);
+  assert.equal(Number((await db.query<{file_size_limit:number}>("select file_size_limit from storage.buckets where id='epubs'")).rows[0].file_size_limit),75*1024*1024);
   const asUser=async(id:string)=>{await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);await db.exec('set role authenticated')};
   await asUser(a);
   const add=async(owner=a)=>{const id=crypto.randomUUID();await db.query('insert into public.books(id,user_id,title,object_key,size) values($1,$2,$3,$4,4)',[id,owner,'Test',`${owner}/${id}.epub`]);return id};
