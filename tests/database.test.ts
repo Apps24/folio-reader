@@ -24,8 +24,8 @@ test('Postgres enforces ownership, book cap, private storage and paid privileges
   assert.equal(Number((await db.query<{file_size_limit:number}>("select file_size_limit from storage.buckets where id='epubs'")).rows[0].file_size_limit),75*1024*1024);
   const asUser=async(id:string)=>{await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);await db.exec('set role authenticated')};
   await asUser(a);
-  const add=async(owner=a)=>{const id=crypto.randomUUID();await db.query('insert into public.books(id,user_id,title,object_key,size) values($1,$2,$3,$4,4)',[id,owner,'Test',`${owner}/${id}.epub`]);return id};
-  const first=await add();for(let i=1;i<5;i++)await add();
+  const add=async(owner=a,size=4)=>{const id=crypto.randomUUID();await db.query('insert into public.books(id,user_id,title,object_key,size) values($1,$2,$3,$4,$5)',[id,owner,'Test',`${owner}/${id}.epub`,size]);return id};
+  const first=await add(a,60*1024*1024);for(let i=1;i<5;i++)await add();
   await assert.rejects(()=>add(),/five books/);
   await assert.rejects(()=>add(b),/owner|row-level/i);
   await assert.rejects(()=>db.query('update public.entitlements set paid_until=9999999999 where user_id=$1',[a]),/permission denied/);
@@ -43,6 +43,7 @@ test('Postgres enforces ownership, book cap, private storage and paid privileges
   await db.exec('reset role');
   await db.query('update public.entitlements set paid_until=9999999999 where user_id=$1',[a]);
   await asUser(a);await add();
+  await assert.rejects(()=>add(a,75*1024*1024+1),/books_size_check|check constraint/i);
   await db.exec('reset role;set role service_role');
   assert.equal((await db.query<{ok:boolean}>("select public.reserve_voice($1,'2026-09',6,10) as ok",[a])).rows[0].ok,true);
   assert.equal((await db.query<{ok:boolean}>("select public.reserve_voice($1,'2026-09',6,10) as ok",[a])).rows[0].ok,false);

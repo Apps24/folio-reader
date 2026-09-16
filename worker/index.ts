@@ -49,7 +49,7 @@ async function api(r:Request,env:Env):Promise<Response>{
     const id=crypto.randomUUID(),key=`${user.id}/${id}.epub`;
     // Atomic conditional INSERT includes pending uploads, preventing parallel requests from exceeding five slots.
     const {error}=await db.from('books').insert({id,user_id:user.id,title,author,object_key:key,size});
-    if(error){if(error.message.includes('five books'))return err('Free accounts can keep five books. Remove a book or upgrade.',403);throw error}return json({id},201);
+    if(error){if(error.message.includes('five books'))return err('Free accounts can keep five books. Remove a book or upgrade.',403);if(error.message.includes('books_size_check'))return err('Choose an EPUB smaller than 75 MB.',413);throw error}return json({id},201);
   }
   const match=path.match(/^\/api\/books\/([a-f0-9-]+)(?:\/(file|state))?$/);
   if(match){
