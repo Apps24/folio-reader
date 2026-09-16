@@ -21,7 +21,7 @@ After applying, run Supabase security advisors and verify table/bucket configura
 
 ## 3. Configure Supabase Auth
 
-In Authentication settings enable Email/Password. Keep email confirmation enabled and set a minimum password length of 12. Set Site URL to the actual deployed Folio HTTPS origin and add that origin to allowed redirect URLs. For local testing add the exact local URL printed by Wrangler or Vite.
+In Authentication settings enable Email/Password. Keep email confirmation enabled and set a minimum password length of 8. Set Site URL to the actual deployed Folio HTTPS origin and add that origin to allowed redirect URLs. For local testing add the exact local URL printed by Wrangler or Vite.
 
 Configure custom SMTP for signups by real users. The default Supabase email sender has testing restrictions and rate limits; check current settings before launch. Registration displays a confirmation-email message when no session is returned. The login screen includes password recovery and sends users back to `/?recovery=1`, which must be covered by the allowed deployed origin.
 
