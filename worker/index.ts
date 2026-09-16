@@ -51,14 +51,15 @@ async function api(r:Request,env:Env):Promise<Response>{
     const {error}=await db.from('books').insert({id,user_id:user.id,title,author,object_key:key,size});
     if(error){if(error.message.includes('five books'))return err('Free accounts can keep five books. Remove a book or upgrade.',403);if(error.message.includes('books_size_check'))return err('Choose an EPUB smaller than 75 MB.',413);throw error}return json({id},201);
   }
-  const match=path.match(/^\/api\/books\/([a-f0-9-]+)(?:\/(file|state))?$/);
+  const match=path.match(/^\/api\/books\/([a-f0-9-]+)(?:\/(file|state|complete))?$/);
   if(match){
     const book=await checked(db.from('books').select('*').eq('id',match[1]).eq('user_id',user.id).maybeSingle());if(!book)return err('Book not found',404);
     if(!match[2]&&r.method==='DELETE'){await checked(db.storage.from('epubs').remove([book.object_key]));await checked(db.from('books').delete().eq('id',book.id).eq('user_id',user.id));return json({ok:true})}
-    if(match[2]==='file'&&r.method==='PUT'){
-      if(book.ready)return err('This upload is already complete.',409);
-      const file=await bytes(r,75*1024*1024);if(file.length!==book.size||file[0]!==80||file[1]!==75)return err('Invalid EPUB upload.');
-      await checked(db.storage.from('epubs').upload(book.object_key,file,{contentType:'application/epub+zip',upsert:false}));await checked(db.from('books').update({ready:true}).eq('id',book.id));return json({ok:true});
+    if(match[2]==='complete'&&r.method==='POST'){
+      if(book.ready)return json({ok:true});
+      const info=await checked(db.storage.from('epubs').info(book.object_key));
+      if(!info||Number(info.size)!==book.size||info.contentType!=='application/epub+zip')return err('Uploaded EPUB verification failed.',422);
+      await checked(db.from('books').update({ready:true}).eq('id',book.id));return json({ok:true});
     }
     if(match[2]==='file'&&r.method==='GET'){const {data:file,error}=await db.storage.from('epubs').download(book.object_key);return file&&!error?new Response(file,{headers:{'Content-Type':'application/epub+zip','Cache-Control':'private, no-store'}}):err('File unavailable',404)}
     if(match[2]==='state'&&r.method==='GET'){const row=await checked(db.from('reading_state').select('data').eq('book_id',book.id).eq('user_id',user.id).maybeSingle());return json(row?.data||{})}

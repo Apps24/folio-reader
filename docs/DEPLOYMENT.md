@@ -15,6 +15,8 @@ Project URL: `https://mdlyiuwyjmwnuvmaskzq.supabase.co`. App Free/Plus membershi
 
 The migrations in `supabase/migrations` have been applied to the dedicated project. They create all app tables, RLS policies, a private `epubs` bucket (75 MiB limit), the required foreign-key index and service-only voice quota functions. Do not manually make the bucket public.
 
+EPUBs use Supabase's resumable TUS endpoint with 6 MiB chunks and the signed-in user's JWT. Uploads go to the direct Storage hostname instead of passing large request bodies through the Cloudflare Worker. The Worker verifies the final object's size and EPUB MIME type before exposing it on the shelf.
+
 The migration includes explicit role grants required by current Data API defaults. All exposed tables have RLS. The private book-limit trigger verifies the signed-in owner and serializes reservations. User-editable Auth metadata is used only for a display name, never for paid access.
 
 After applying, run Supabase security advisors and verify table/bucket configuration. Then test two disposable accounts: upload an EPUB, save notes/progress, sign out, sign back in and retrieve them; the second account must see an empty shelf and receive no access to the first account's files. Verify a sixth Free book fails, including direct API inserts.

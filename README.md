@@ -17,7 +17,7 @@ Free accounts have five book slots. Plus has unlimited book slots with a configu
 | Paid status, Stripe customer | PostgreSQL `entitlements` | Owner can read; only server can write |
 | AI usage | PostgreSQL `voice_usage` | Owner can read; server reserves/refunds atomically |
 
-The browser uses a publishable key. The Worker verifies its access token with Supabase Auth and passes it to database/storage requests, preserving RLS. Free accounts work without the server secret. The secret is used only for entitlement initialization, billing and voice quotas, and is never returned by `/api/config`.
+The browser uses a publishable key. The Worker verifies its access token with Supabase Auth and passes it to database/storage requests, preserving RLS. Large EPUBs upload directly to the private bucket with authenticated, resumable 6 MiB TUS chunks; the Worker verifies stored size and MIME type before marking a book ready. Free accounts work without the server secret. The secret is used only for entitlement initialization, billing and voice quotas, and is never returned by `/api/config`.
 
 ## Development
 
