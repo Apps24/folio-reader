@@ -1,6 +1,6 @@
 import {isPaid,monthKey,verifyWebhook} from './security.ts';
 import {createClient} from '@supabase/supabase-js';
-interface Env { SUPABASE_URL:string; SUPABASE_PUBLISHABLE_KEY:string; SUPABASE_SECRET_KEY?:string; ASSETS:Fetcher; AI:Ai; VOICE_LIMIT:RateLimit; AI_MONTHLY_CHARACTERS:string; STRIPE_SECRET_KEY?:string; STRIPE_PRICE_ID?:string; STRIPE_WEBHOOK_SECRET?:string; APP_ORIGIN?:string }
+interface Env { SUPABASE_URL:string; SUPABASE_PUBLISHABLE_KEY:string; SUPABASE_SECRET_KEY?:string; BOOKS:R2Bucket; ASSETS:Fetcher; AI:Ai; VOICE_LIMIT:RateLimit; AI_MONTHLY_CHARACTERS:string; STRIPE_SECRET_KEY?:string; STRIPE_PRICE_ID?:string; STRIPE_WEBHOOK_SECRET?:string; APP_ORIGIN?:string }
 type User={id:string;name:string;email:string;customer:string|null;paid_until:number;};
 const json=(data:unknown,status=200,headers:HeadersInit={})=>Response.json(data,{status,headers:{'Cache-Control':'no-store',...headers}});
 const err=(message:string,status=400)=>json({error:message},status);
@@ -24,7 +24,7 @@ async function webhook(r:Request,env:Env){
 async function api(r:Request,env:Env):Promise<Response>{
   const url=new URL(r.url),path=url.pathname;
   const publicConfigured=!!(env.SUPABASE_URL&&env.SUPABASE_PUBLISHABLE_KEY),serverConfigured=!!env.SUPABASE_SECRET_KEY;
-  if(path==='/api/health')return json({ok:true,configured:publicConfigured,serverConfigured});
+  if(path==='/api/health')return json({ok:true,configured:publicConfigured,serverConfigured,storageConfigured:!!env.BOOKS});
   if(!publicConfigured)return err('Supabase connection is not configured yet.',503);
   if(path==='/api/config'&&r.method==='GET')return json({url:env.SUPABASE_URL,publishableKey:env.SUPABASE_PUBLISHABLE_KEY});
   if(path==='/api/billing/webhook'&&r.method==='POST')return serverConfigured?webhook(r,env):err('Billing is not configured',503);
@@ -54,14 +54,36 @@ async function api(r:Request,env:Env):Promise<Response>{
   const match=path.match(/^\/api\/books\/([a-f0-9-]+)(?:\/(file|state|complete))?$/);
   if(match){
     const book=await checked(db.from('books').select('*').eq('id',match[1]).eq('user_id',user.id).maybeSingle());if(!book)return err('Book not found',404);
-    if(!match[2]&&r.method==='DELETE'){await checked(db.storage.from('epubs').remove([book.object_key]));await checked(db.from('books').delete().eq('id',book.id).eq('user_id',user.id));return json({ok:true})}
+    if(!match[2]&&r.method==='DELETE'){
+      await env.BOOKS.delete(book.object_key);
+      // Compatibility cleanup for books uploaded before the R2 migration.
+      await db.storage.from('epubs').remove([book.object_key]);
+      await checked(db.from('books').delete().eq('id',book.id).eq('user_id',user.id));return json({ok:true})
+    }
+    if(match[2]==='file'&&r.method==='PUT'){
+      if(book.ready)return err('This upload is already complete.',409);
+      if(!r.body)return err('Choose an EPUB file.');
+      const declared=Number(r.headers.get('Content-Length'));
+      if(!Number.isInteger(declared)||declared!==book.size||declared>75*1024*1024)return err('Uploaded EPUB size does not match the selected file.',413);
+      const type=(r.headers.get('Content-Type')||'').split(';',1)[0].trim().toLowerCase();
+      if(type!=='application/epub+zip')return err('Only EPUB files can be uploaded.',415);
+      const stored=await env.BOOKS.put(book.object_key,r.body,{httpMetadata:{contentType:'application/epub+zip'},customMetadata:{owner:user.id,bookId:book.id}});
+      const prefix=await env.BOOKS.get(book.object_key,{range:{offset:0,length:4}}),signature=prefix?new Uint8Array(await prefix.arrayBuffer()):new Uint8Array();
+      if(stored.size!==book.size||signature[0]!==0x50||signature[1]!==0x4b||signature[2]!==0x03||signature[3]!==0x04){await env.BOOKS.delete(book.object_key);return err('Uploaded file is not a valid EPUB archive.',422)}
+      await checked(db.from('books').update({ready:true}).eq('id',book.id).eq('user_id',user.id));return json({ok:true},201)
+    }
     if(match[2]==='complete'&&r.method==='POST'){
       if(book.ready)return json({ok:true});
-      const info=await checked(db.storage.from('epubs').info(book.object_key));
-      if(!info||Number(info.size)!==book.size||info.contentType!=='application/epub+zip')return err('Uploaded EPUB verification failed.',422);
+      const info=await env.BOOKS.head(book.object_key);
+      if(!info||info.size!==book.size||info.httpMetadata?.contentType!=='application/epub+zip')return err('Uploaded EPUB verification failed.',422);
       await checked(db.from('books').update({ready:true}).eq('id',book.id));return json({ok:true});
     }
-    if(match[2]==='file'&&r.method==='GET'){const {data:file,error}=await db.storage.from('epubs').download(book.object_key);return file&&!error?new Response(file,{headers:{'Content-Type':'application/epub+zip','Cache-Control':'private, no-store'}}):err('File unavailable',404)}
+    if(match[2]==='file'&&r.method==='GET'){
+      const object=await env.BOOKS.get(book.object_key);
+      if(object){const headers=new Headers({'Content-Type':'application/epub+zip','Cache-Control':'private, no-store','ETag':object.httpEtag});return new Response(object.body,{headers})}
+      // Existing books remain readable while their bytes are still in Supabase Storage.
+      const {data:file,error}=await db.storage.from('epubs').download(book.object_key);return file&&!error?new Response(file,{headers:{'Content-Type':'application/epub+zip','Cache-Control':'private, no-store'}}):err('File unavailable',404)
+    }
     if(match[2]==='state'&&r.method==='GET'){const row=await checked(db.from('reading_state').select('data').eq('book_id',book.id).eq('user_id',user.id).maybeSingle());return json(row?.data||{})}
     if(match[2]==='state'&&r.method==='PUT'){const data=await body(r,100000);await checked(db.from('reading_state').upsert({book_id:book.id,user_id:user.id,data,updated_at:new Date().toISOString()},{onConflict:'book_id'}));return json({ok:true})}
   }

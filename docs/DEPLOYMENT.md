@@ -1,21 +1,21 @@
-# Folio deployment — Supabase + Cloudflare
+# Folio deployment — Supabase + Cloudflare R2
 
 ## Current status
 
 - Repository: https://github.com/Apps24/folio-reader (created by owner, currently public).
 - Supabase project: **folio-reader** (`mdlyiuwyjmwnuvmaskzq`) in Mumbai, provisioned in **Apps24's Org** on the Free plan.
-- All checked-in migrations are applied. Security advisors report no findings; the private `epubs` bucket is configured for EPUB files up to 75 MiB.
+- All checked-in migrations are applied. Supabase remains responsible for Auth and PostgreSQL metadata; new EPUB files are stored in private Cloudflare R2.
 - Local database security tests, CI and the production build pass. The public Supabase URL and publishable key are deployed with the Worker; email delivery, billing and voice checks remain pending.
 
 ## 1. Supabase project (complete)
 
 Project URL: `https://mdlyiuwyjmwnuvmaskzq.supabase.co`. App Free/Plus membership is independent of the Supabase hosting plan. No paid Supabase infrastructure was activated.
 
-## 2. Apply database and Storage setup
+## 2. Supabase database setup
 
-The migrations in `supabase/migrations` have been applied to the dedicated project. They create all app tables, RLS policies, a private `epubs` bucket (75 MiB limit), the required foreign-key index and service-only voice quota functions. Do not manually make the bucket public.
+The migrations in `supabase/migrations` have been applied to the dedicated project. They create all app tables, RLS policies, the required foreign-key index and service-only voice quota functions. The old private `epubs` bucket remains temporarily so books uploaded before the R2 migration can still be read and removed.
 
-EPUBs use Supabase's resumable TUS endpoint with 6 MiB chunks and the signed-in user's JWT. Uploads go to the direct Storage hostname instead of passing large request bodies through the Cloudflare Worker. The Worker verifies the final object's size and EPUB MIME type before exposing it on the shelf.
+New EPUB uploads use `/api/books/:id/file`. The Worker authenticates the Supabase JWT, verifies ownership, content length and MIME type, then streams the request body into R2 without buffering the complete book. The stored R2 object size is checked before the database row becomes ready.
 
 The migration includes explicit role grants required by current Data API defaults. All exposed tables have RLS. The private book-limit trigger verifies the signed-in owner and serializes reservations. User-editable Auth metadata is used only for a display name, never for paid access.
 
@@ -29,7 +29,9 @@ Configure custom SMTP for signups by real users. The default Supabase email send
 
 ## 4. Configure Cloudflare
 
-Create/deploy a **Worker with static assets**, named `folio-reader`; no D1 database or R2 bucket is needed for this version. Use the new repository's own GitHub Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. LOTM repository secrets do not automatically transfer. The token needs Workers deployment permission and Workers AI access for paid narration.
+Create a private R2 bucket named **`folio-books`**. Do not enable its `r2.dev` public URL or attach a public custom domain. The checked-in Wrangler configuration binds it to the Worker as `BOOKS`.
+
+Deploy the **Worker with static assets**, named `folio-reader`. Use the repository's GitHub Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The token needs Workers Scripts: Edit and R2 Storage: Edit permissions for this account; Workers AI access is also needed for paid narration.
 
 The public URL, publishable key and deployed origin are checked into `wrangler.jsonc`; publishable keys are designed for browser use and all access is protected by RLS. In Cloudflare Worker Settings → Variables and Secrets, add the server secret when activating paid/server-side functionality:
 
@@ -39,7 +41,7 @@ The public URL, publishable key and deployed origin are checked into `wrangler.j
 
 Keys are in Supabase Project Settings → API Keys / Connect. Never use a secret key as the publishable key, put secrets in `VITE_*`, or commit `.dev.vars`. The frontend fetches only URL/publishable key from `/api/config`, so a separate frontend rebuild is not needed to change these values.
 
-Run the GitHub **Deploy Folio** workflow from `main`. The workflow builds and deploys; it deliberately does not apply database changes automatically. Verify `/api/health` reports `configured: true`; `serverConfigured` remains false until the encrypted server secret is added. `/api/config` must contain no secret key. Then verify the account and EPUB flows above. These flags check settings presence, not connection health.
+Run the GitHub **Deploy Folio** workflow from `main`. The workflow builds and deploys; it deliberately does not apply database changes automatically. Verify `/api/health` reports `configured: true` and `storageConfigured: true`; `serverConfigured` remains false until the encrypted server secret is added. `/api/config` must contain no secret key. Then verify the account and EPUB flows above. These flags check binding presence, not a write test.
 
 ## 5. Activate paid features
 
@@ -49,7 +51,7 @@ Verify payments, cancellation, expiry and duplicate/reordered webhooks in Stripe
 
 ## Rollback and operations
 
-Redeploy the previous verified Worker version; preserve database and Storage contents. Keep future migrations compatible with the previous Worker until rollout completes. Set up backups, monitoring, stale upload/orphan-file cleanup and load testing before commercial launch. Storage and bandwidth remain finite even when the app advertises unlimited paid book slots.
+Redeploy the previous verified Worker version if rollback is necessary; preserve database, R2 and legacy Supabase Storage contents. Keep the legacy bucket until its remaining objects have been migrated. Set up backups, monitoring, stale upload/orphan-file cleanup and load testing before commercial launch. Storage and bandwidth remain finite even when the app advertises unlimited paid book slots.
 
 ## Official references
 
@@ -58,3 +60,4 @@ Redeploy the previous verified Worker version; preserve database and Storage con
 - https://supabase.com/docs/guides/database/postgres/row-level-security
 - https://supabase.com/docs/guides/storage/security/access-control
 - https://supabase.com/docs/guides/api/securing-your-api
+- https://developers.cloudflare.com/r2/api/workers/workers-api-usage/

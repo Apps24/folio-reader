@@ -1,6 +1,6 @@
 # Folio Reader
 
-Personal multi-book EPUB reader, hosted by a Cloudflare Worker. **Supabase Auth, PostgreSQL and private Storage** handle accounts and saved data. This replaces the original D1/R2 prototype; do not run its old migration.
+Personal multi-book EPUB reader hosted by a Cloudflare Worker. **Supabase Auth and PostgreSQL** handle accounts and saved data; a private **Cloudflare R2** bucket stores EPUB files.
 
 Features: name/email/password registration, email confirmation, password recovery, login/logout, private EPUB uploads, chapter navigation, search, notes, bookmarks, synced reading progress and appearance, device narration, buffered paid Aura-2 narration and Stripe subscription integration.
 
@@ -12,12 +12,12 @@ Free accounts have five book slots. Plus has unlimited book slots with a configu
 | --- | --- | --- |
 | Email, password, display name | Supabase Auth | Managed by Auth; no app password table |
 | Book metadata | PostgreSQL `books` | Owner only through RLS |
-| EPUB bytes | Private `epubs` Storage bucket | Owner and reserved book path only |
+| EPUB bytes | Private Cloudflare R2 `folio-books` bucket | Worker-verified owner only |
 | Progress, notes, bookmarks, settings | PostgreSQL `reading_state` | Owner only; linked to owned book |
 | Paid status, Stripe customer | PostgreSQL `entitlements` | Owner can read; only server can write |
 | AI usage | PostgreSQL `voice_usage` | Owner can read; server reserves/refunds atomically |
 
-The browser uses a publishable key. The Worker verifies its access token with Supabase Auth and passes it to database/storage requests, preserving RLS. Large EPUBs upload directly to the private bucket with authenticated, resumable 6 MiB TUS chunks; the Worker verifies stored size and MIME type before marking a book ready. Free accounts work without the server secret. The secret is used only for entitlement initialization, billing and voice quotas, and is never returned by `/api/config`.
+The browser uses a Supabase publishable key. The Worker verifies its access token with Supabase Auth and preserves database RLS. EPUB bodies stream through the authenticated Worker route directly into private R2 storage without being buffered in Worker memory. The Worker verifies the declared size, stored size and EPUB MIME type before marking a book ready. Existing Supabase Storage books retain a compatibility read fallback during migration. The Supabase secret is used only for entitlement initialization, billing and voice quotas, and is never returned by `/api/config`.
 
 ## Development
 

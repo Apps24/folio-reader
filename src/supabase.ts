@@ -22,24 +22,22 @@ export async function authenticatedFetch(path:string, options:RequestInit = {}) 
   return fetch(path, {...options, headers});
 }
 export async function uploadEpub(id:string,file:File,onProgress?:(percent:number)=>void) {
-  const [supabase,config,{Upload}] = await Promise.all([getSupabase(),getSupabaseConfig(),import('tus-js-client')]);
+  const supabase = await getSupabase();
   const {data,error} = await supabase.auth.getSession();
   if(error)throw error;if(!data.session)throw new Error('Please sign in.');
-  const projectRef=new URL(config.url).hostname.split('.')[0];
-  if(!/^[a-z0-9-]+$/.test(projectRef))throw new Error('Invalid storage configuration.');
   await new Promise<void>((resolve,reject)=>{
-    const upload=new Upload(file,{
-      endpoint:`https://${projectRef}.storage.supabase.co/storage/v1/upload/resumable`,
-      retryDelays:[0,3000,5000,10000,20000],
-      headers:{authorization:`Bearer ${data.session.access_token}`,apikey:config.publishableKey},
-      uploadDataDuringCreation:true,
-      removeFingerprintOnSuccess:true,
-      chunkSize:6*1024*1024,
-      metadata:{bucketName:'epubs',objectName:`${data.session.user.id}/${id}.epub`,contentType:'application/epub+zip',cacheControl:'3600'},
-      onError:error=>reject(new Error(error.message||'EPUB upload failed.')),
-      onProgress:(uploaded,total)=>onProgress?.(Math.round(uploaded/total*100)),
-      onSuccess:()=>resolve()
-    });
-    upload.findPreviousUploads().then(previous=>{if(previous.length)upload.resumeFromPreviousUpload(previous[0]);upload.start()}).catch(reject);
+    const request=new XMLHttpRequest();
+    request.open('PUT',`/api/books/${encodeURIComponent(id)}/file`);
+    request.setRequestHeader('Authorization',`Bearer ${data.session.access_token}`);
+    request.setRequestHeader('Content-Type','application/epub+zip');
+    request.upload.onprogress=event=>{if(event.lengthComputable)onProgress?.(Math.round(event.loaded/event.total*100))};
+    request.onerror=()=>reject(new Error('EPUB upload was interrupted. Please retry.'));
+    request.onabort=()=>reject(new Error('EPUB upload was cancelled.'));
+    request.onload=()=>{
+      let message='EPUB upload failed.';
+      try{message=(JSON.parse(request.responseText) as {error?:string}).error||message}catch{}
+      request.status>=200&&request.status<300?resolve():reject(new Error(message));
+    };
+    request.send(file);
   });
 }

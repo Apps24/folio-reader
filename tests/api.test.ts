@@ -9,7 +9,7 @@ test('public integration works without exposing or requiring the server key',asy
  assert.deepEqual(await config.json(),{url:env.SUPABASE_URL,publishableKey:env.SUPABASE_PUBLISHABLE_KEY});
  const publicOnly={SUPABASE_URL:env.SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY:env.SUPABASE_PUBLISHABLE_KEY};
  assert.deepEqual(await (await worker.fetch(request('/config'),publicOnly as any)).json(),{url:env.SUPABASE_URL,publishableKey:env.SUPABASE_PUBLISHABLE_KEY});
- assert.deepEqual(await (await worker.fetch(request('/health'),publicOnly as any)).json(),{ok:true,configured:true,serverConfigured:false});
+ assert.deepEqual(await (await worker.fetch(request('/health'),publicOnly as any)).json(),{ok:true,configured:true,serverConfigured:false,storageConfigured:false});
  assert.equal((await worker.fetch(request('/books'),env)).status,401);
  assert.equal((await worker.fetch(request('/books',{method:'POST',headers:{Origin:'https://evil.test'}}),env)).status,403);
 });
@@ -31,8 +31,8 @@ test('free reading APIs preserve RLS when the server secret is absent',async(t)=
  const books=await worker.fetch(new Request('https://folio.test/api/books',{headers}),env);
  assert.equal(books.status,200);assert.deepEqual(await books.json(),[]);
 });
-test('Worker verifies a direct Storage upload before marking the book ready',async(t)=>{
- const owner='11111111-1111-4111-8111-111111111111',book='33333333-3333-4333-8333-333333333333';let finalized=false;
+test('Worker streams an authenticated EPUB to private R2 and marks the book ready',async(t)=>{
+ const owner='11111111-1111-4111-8111-111111111111',book='33333333-3333-4333-8333-333333333333';let finalized=false,storedKey='',storedBody='';
  t.mock.method(globalThis,'fetch',async(input:RequestInfo|URL,options?:RequestInit)=>{
   const url=new URL(String(input));
   if(url.pathname==='/auth/v1/user')return Response.json({id:owner,email:'reader@example.test',user_metadata:{name:'Reader'},aud:'authenticated'});
@@ -41,12 +41,14 @@ test('Worker verifies a direct Storage upload before marking the book ready',asy
    if(options?.method==='PATCH'){finalized=true;return new Response(null,{status:204})}
    return Response.json({id:book,user_id:owner,object_key:`${owner}/${book}.epub`,size:4,ready:false});
   }
-  if(url.pathname.startsWith('/storage/v1/object/info/'))return Response.json({size:4,content_type:'application/epub+zip'});
   throw new Error(`Unexpected request: ${url.pathname}`);
  });
- const env:any={SUPABASE_URL:'https://example.supabase.co',SUPABASE_PUBLISHABLE_KEY:'sb_publishable_test'};
- const response=await worker.fetch(new Request(`https://folio.test/api/books/${book}/complete`,{method:'POST',headers:{Origin:'https://folio.test',Authorization:'Bearer valid-token'}}),env);
- assert.equal(response.status,200);assert.equal(finalized,true);
+ const env:any={SUPABASE_URL:'https://example.supabase.co',SUPABASE_PUBLISHABLE_KEY:'sb_publishable_test',BOOKS:{
+  async put(key:string,value:ReadableStream){storedKey=key;storedBody=await new Response(value).text();return {size:storedBody.length}},
+  async delete(){},async head(){return null},async get(){return {arrayBuffer:async()=>Uint8Array.from([0x50,0x4b,0x03,0x04]).buffer}}
+ }};
+ const response=await worker.fetch(new Request(`https://folio.test/api/books/${book}/file`,{method:'PUT',headers:{Origin:'https://folio.test',Authorization:'Bearer valid-token','Content-Type':'application/epub+zip','Content-Length':'4'},body:'PK\u0003\u0004'}),env);
+ assert.equal(response.status,201);assert.equal(finalized,true);assert.equal(storedKey,`${owner}/${book}.epub`);assert.equal(storedBody,'PK\u0003\u0004');
 });
 test('Worker verifies Auth and uses the user token for saving and retrieving reading data',async(t)=>{
  const owner='11111111-1111-4111-8111-111111111111',book='33333333-3333-4333-8333-333333333333';
