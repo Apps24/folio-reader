@@ -5,5 +5,10 @@
   "assets":{"directory":"dist","binding":"ASSETS","not_found_handling":"single-page-application","run_worker_first":["/api/*"]},
   "ai":{"binding":"AI"},
   "ratelimits":[{"name":"VOICE_LIMIT","namespace_id":"1002","simple":{"limit":12,"period":60}}],
-  "vars":{"AI_MONTHLY_CHARACTERS":"100000"}
+  "vars":{
+    "AI_MONTHLY_CHARACTERS":"100000",
+    "SUPABASE_URL":"https://mdlyiuwyjmwnuvmaskzq.supabase.co",
+    "SUPABASE_PUBLISHABLE_KEY":"sb_publishable_SO1pYgh6sVde10WR3QXalA_POXiKgNR",
+    "APP_ORIGIN":"https://folio-reader.apurvpatole2.workers.dev"
+  }
 }

@@ -1,14 +1,35 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../worker/index.ts';
-test('unconfigured API is explicit and public config excludes the server key',async()=>{
+test('public integration works without exposing or requiring the server key',async()=>{
  const env:any={SUPABASE_URL:'https://example.supabase.co',SUPABASE_PUBLISHABLE_KEY:'sb_publishable_test',SUPABASE_SECRET_KEY:'sb_secret_private'};
  const request=(path:string,options?:RequestInit)=>new Request(`https://folio.test/api${path}`,options);
  assert.equal((await worker.fetch(request('/config'),{} as any)).status,503);
  const config=await worker.fetch(request('/config'),env);
  assert.deepEqual(await config.json(),{url:env.SUPABASE_URL,publishableKey:env.SUPABASE_PUBLISHABLE_KEY});
+ const publicOnly={SUPABASE_URL:env.SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY:env.SUPABASE_PUBLISHABLE_KEY};
+ assert.deepEqual(await (await worker.fetch(request('/config'),publicOnly as any)).json(),{url:env.SUPABASE_URL,publishableKey:env.SUPABASE_PUBLISHABLE_KEY});
+ assert.deepEqual(await (await worker.fetch(request('/health'),publicOnly as any)).json(),{ok:true,configured:true,serverConfigured:false});
  assert.equal((await worker.fetch(request('/books'),env)).status,401);
  assert.equal((await worker.fetch(request('/books',{method:'POST',headers:{Origin:'https://evil.test'}}),env)).status,403);
+});
+test('free reading APIs preserve RLS when the server secret is absent',async(t)=>{
+ const owner='11111111-1111-4111-8111-111111111111';
+ t.mock.method(globalThis,'fetch',async(input:RequestInfo|URL,options?:RequestInit)=>{
+  const url=new URL(String(input)),headers=new Headers(options?.headers);
+  assert.equal(headers.get('Authorization'),'Bearer valid-token');
+  if(url.pathname==='/auth/v1/user')return Response.json({id:owner,email:'reader@example.test',user_metadata:{name:'Reader'},aud:'authenticated'});
+  if(url.pathname==='/rest/v1/entitlements')return Response.json(null);
+  if(url.pathname==='/rest/v1/voice_usage')return Response.json(null);
+  if(url.pathname==='/rest/v1/books')return Response.json([]);
+  throw new Error(`Unexpected request: ${url.pathname}`);
+ });
+ const env:any={SUPABASE_URL:'https://example.supabase.co',SUPABASE_PUBLISHABLE_KEY:'sb_publishable_test',AI_MONTHLY_CHARACTERS:'100000'};
+ const headers={Authorization:'Bearer valid-token'};
+ const me=await worker.fetch(new Request('https://folio.test/api/me',{headers}),env);
+ assert.equal(me.status,200);assert.equal((await me.json() as any).plan,'free');
+ const books=await worker.fetch(new Request('https://folio.test/api/books',{headers}),env);
+ assert.equal(books.status,200);assert.deepEqual(await books.json(),[]);
 });
 test('Worker verifies Auth and uses the user token for saving and retrieving reading data',async(t)=>{
  const owner='11111111-1111-4111-8111-111111111111',book='33333333-3333-4333-8333-333333333333';

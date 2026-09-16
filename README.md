@@ -2,7 +2,7 @@
 
 Personal multi-book EPUB reader, hosted by a Cloudflare Worker. **Supabase Auth, PostgreSQL and private Storage** handle accounts and saved data. This replaces the original D1/R2 prototype; do not run its old migration.
 
-Features: name/email/password registration, email confirmation handling, login/logout, private EPUB uploads, chapter navigation, search, notes, bookmarks, synced reading progress and appearance, device narration, buffered paid Aura-2 narration and Stripe subscription integration.
+Features: name/email/password registration, email confirmation, password recovery, login/logout, private EPUB uploads, chapter navigation, search, notes, bookmarks, synced reading progress and appearance, device narration, buffered paid Aura-2 narration and Stripe subscription integration.
 
 Free accounts have five book slots. Plus has unlimited book slots with a configurable monthly AI allowance (default 100,000 characters). Every EPUB is limited to 50 MiB. Subscription price and provider credentials must be configured before checkout becomes available. Voice here means narration, not a conversational assistant or voice cloning.
 
@@ -17,7 +17,7 @@ Free accounts have five book slots. Plus has unlimited book slots with a configu
 | Paid status, Stripe customer | PostgreSQL `entitlements` | Owner can read; only server can write |
 | AI usage | PostgreSQL `voice_usage` | Owner can read; server reserves/refunds atomically |
 
-The browser uses a publishable key. The Worker verifies its access token with Supabase Auth and passes it to database/storage requests, preserving RLS. The server secret is used only for entitlement initialization, billing and voice quotas. It is never returned by `/api/config`.
+The browser uses a publishable key. The Worker verifies its access token with Supabase Auth and passes it to database/storage requests, preserving RLS. Free accounts work without the server secret. The secret is used only for entitlement initialization, billing and voice quotas, and is never returned by `/api/config`.
 
 ## Development
 
@@ -27,6 +27,6 @@ See [deployment and account setup](docs/DEPLOYMENT.md) for exact next steps and 
 
 ## Verification and limitations
 
-Automated tests execute the unchanged migration in PGlite PostgreSQL with Supabase platform fixtures and check RLS isolation, state save/retrieval, private storage policies, book limits, privilege denial, AI reservation/refund, webhook signatures and public config. TypeScript and the production Vite build pass. These are local tests, not proof of a deployed connection. Live Auth, Storage transport, concurrent database sessions, email delivery, billing and real narration need staging verification after project creation.
+Automated tests execute the unchanged migration in PGlite PostgreSQL with Supabase platform fixtures and check RLS isolation, state save/retrieval, private storage policies, book limits, privilege denial, AI reservation/refund, webhook signatures, public-only configuration and secret handling. TypeScript and the production Vite build pass. Live email delivery, billing and real narration still need staging verification with their provider credentials.
 
-Browser preview is not yet verified in this workspace; the prior Wrangler launch returned a host network-interface error. Password recovery UI, offline sync and cross-device conflict merging remain future work. EPUB rendering uses sanitized supported HTML, not DRM, scripts or original publisher CSS. Audio buffering reduces gaps but does not guarantee sample-gapless playback. Public signup requires an email delivery provider configured in Supabase.
+The deployed browser UI and configuration endpoint are verified after each deployment. Offline sync and cross-device conflict merging remain future work. EPUB rendering uses sanitized supported HTML, not DRM, scripts or original publisher CSS. Audio buffering reduces gaps but does not guarantee sample-gapless playback. Public signup requires an email delivery provider configured in Supabase.

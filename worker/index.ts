@@ -1,10 +1,10 @@
 import {isPaid,monthKey,verifyWebhook} from './security.ts';
 import {createClient} from '@supabase/supabase-js';
-interface Env { SUPABASE_URL:string; SUPABASE_PUBLISHABLE_KEY:string; SUPABASE_SECRET_KEY:string; ASSETS:Fetcher; AI:Ai; VOICE_LIMIT:RateLimit; AI_MONTHLY_CHARACTERS:string; STRIPE_SECRET_KEY?:string; STRIPE_PRICE_ID?:string; STRIPE_WEBHOOK_SECRET?:string; APP_ORIGIN?:string }
+interface Env { SUPABASE_URL:string; SUPABASE_PUBLISHABLE_KEY:string; SUPABASE_SECRET_KEY?:string; ASSETS:Fetcher; AI:Ai; VOICE_LIMIT:RateLimit; AI_MONTHLY_CHARACTERS:string; STRIPE_SECRET_KEY?:string; STRIPE_PRICE_ID?:string; STRIPE_WEBHOOK_SECRET?:string; APP_ORIGIN?:string }
 type User={id:string;name:string;email:string;customer:string|null;paid_until:number;};
 const json=(data:unknown,status=200,headers:HeadersInit={})=>Response.json(data,{status,headers:{'Cache-Control':'no-store',...headers}});
 const err=(message:string,status=400)=>json({error:message},status);
-function client(env:Env, jwt?:string) {return createClient(env.SUPABASE_URL, jwt ? env.SUPABASE_PUBLISHABLE_KEY : env.SUPABASE_SECRET_KEY, {auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}, ...(jwt?{global:{headers:{Authorization:`Bearer ${jwt}`}}}:{})});}
+function client(env:Env, jwt?:string) {const key=jwt?env.SUPABASE_PUBLISHABLE_KEY:env.SUPABASE_SECRET_KEY;if(!key)throw new Error('Server integration is not configured');return createClient(env.SUPABASE_URL,key,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false},...(jwt?{global:{headers:{Authorization:`Bearer ${jwt}`}}}:{})});}
 async function checked<T>(query:PromiseLike<{data:T;error:unknown}>):Promise<T>{const {data,error}=await query;if(error)throw error;return data}
 async function bytes(r:Request,max:number){const reader=r.body?.getReader();if(!reader)throw new Error('Empty body');const chunks:Uint8Array[]=[];let size=0;while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>max){await reader.cancel();throw new Error('Request is too large')}chunks.push(value)}const all=new Uint8Array(size);let at=0;for(const c of chunks){all.set(c,at);at+=c.length}return all}
 async function body(r:Request,max=20000){return JSON.parse(new TextDecoder().decode(await bytes(r,max)))}
@@ -23,19 +23,20 @@ async function webhook(r:Request,env:Env){
 }
 async function api(r:Request,env:Env):Promise<Response>{
   const url=new URL(r.url),path=url.pathname;
-  if(path==='/api/health')return json({ok:true,configured:!!(env.SUPABASE_URL&&env.SUPABASE_PUBLISHABLE_KEY&&env.SUPABASE_SECRET_KEY)});
-  if(!env.SUPABASE_URL||!env.SUPABASE_PUBLISHABLE_KEY||!env.SUPABASE_SECRET_KEY)return err('Supabase connection is not configured yet.',503);
+  const publicConfigured=!!(env.SUPABASE_URL&&env.SUPABASE_PUBLISHABLE_KEY),serverConfigured=!!env.SUPABASE_SECRET_KEY;
+  if(path==='/api/health')return json({ok:true,configured:publicConfigured,serverConfigured});
+  if(!publicConfigured)return err('Supabase connection is not configured yet.',503);
   if(path==='/api/config'&&r.method==='GET')return json({url:env.SUPABASE_URL,publishableKey:env.SUPABASE_PUBLISHABLE_KEY});
-  if(path==='/api/billing/webhook'&&r.method==='POST')return webhook(r,env);
+  if(path==='/api/billing/webhook'&&r.method==='POST')return serverConfigured?webhook(r,env):err('Billing is not configured',503);
   if(!['GET','HEAD'].includes(r.method)&&r.headers.get('Origin')!==url.origin)return err('Origin not allowed',403);
   const jwt=r.headers.get('Authorization')?.match(/^Bearer (.+)$/i)?.[1];
   if(!jwt)return err('Please sign in.',401);
-  const db=client(env,jwt),admin=client(env);
+  const db=client(env,jwt),admin=serverConfigured?client(env):null;
   const {data:identity,error:authError}=await db.auth.getUser(jwt);
   if(authError||!identity.user)return err('Please sign in again.',401);
   const id=identity.user.id;
-  await checked(admin.from('entitlements').upsert({user_id:id},{onConflict:'user_id',ignoreDuplicates:true}));
-  const entitlement=await checked(db.from('entitlements').select('customer,paid_until').eq('user_id',id).single());
+  if(admin)await checked(admin.from('entitlements').upsert({user_id:id},{onConflict:'user_id',ignoreDuplicates:true}));
+  const entitlement=await checked(db.from('entitlements').select('customer,paid_until').eq('user_id',id).maybeSingle());
   const user:User={id,name:String(identity.user.user_metadata?.name||'Reader').slice(0,80),email:identity.user.email||'',customer:entitlement?.customer??null,paid_until:Number(entitlement?.paid_until)||0};
   if(path==='/api/me'&&r.method==='GET'){
     const used=await checked(db.from('voice_usage').select('characters').eq('user_id',user.id).eq('month',monthKey()).maybeSingle());
@@ -65,6 +66,7 @@ async function api(r:Request,env:Env):Promise<Response>{
   }
   if(path==='/api/tts'&&r.method==='POST'){
     if(!isPaid(user))return err('AI narration requires a paid subscription.',403);
+    if(!admin)return err('AI narration is not configured yet.',503);
     if(!(await env.VOICE_LIMIT.limit({key:user.id})).success)return err('Voice request limit reached. Retry in a minute.',429);
     const data=await body(r);const text=String(data.text||'').trim();const speakers=['athena','pluto','orpheus','pandora','vesta','minerva','zeus','orion'];
     if(!text||text.length>1800)return err('Narration passages must contain 1–1800 characters.');
@@ -76,14 +78,14 @@ async function api(r:Request,env:Env):Promise<Response>{
     }
   }
   if(path==='/api/billing/checkout'&&r.method==='POST'){
-    if(!env.STRIPE_PRICE_ID||!env.STRIPE_WEBHOOK_SECRET)return err('Paid checkout is not activated yet.',503);
+    if(!admin||!env.STRIPE_PRICE_ID||!env.STRIPE_WEBHOOK_SECRET)return err('Paid checkout is not activated yet.',503);
     if(isPaid(user))return err('You already have paid access. Manage it in billing settings.');
     let customer=user.customer;
     if(!customer){const created=await stripe(env,'customers',new URLSearchParams({email:user.email,name:user.name,'metadata[user_id]':user.id}));customer=created.id;await checked(admin.from('entitlements').update({customer}).eq('user_id',user.id))}
     const origin=env.APP_ORIGIN||url.origin;
     const checkout=await stripe(env,'checkout/sessions',new URLSearchParams({mode:'subscription',customer:customer!,success_url:`${origin}/?billing=success`,cancel_url:`${origin}/?billing=cancelled`,'line_items[0][price]':env.STRIPE_PRICE_ID,'line_items[0][quantity]':'1'}));return json({url:checkout.url});
   }
-  if(path==='/api/billing/portal'&&r.method==='POST'){if(!user.customer)return err('No billing account yet.');const portal=await stripe(env,'billing_portal/sessions',new URLSearchParams({customer:user.customer,return_url:env.APP_ORIGIN||url.origin}));return json({url:portal.url})}
+  if(path==='/api/billing/portal'&&r.method==='POST'){if(!admin)return err('Paid billing is not activated yet.',503);if(!user.customer)return err('No billing account yet.');const portal=await stripe(env,'billing_portal/sessions',new URLSearchParams({customer:user.customer,return_url:env.APP_ORIGIN||url.origin}));return json({url:portal.url})}
   return err('Not found',404);
 }
 export default {async fetch(r:Request,env:Env):Promise<Response>{
