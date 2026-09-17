@@ -2,7 +2,7 @@
 
 Personal multi-book EPUB reader hosted by a Cloudflare Worker. **Supabase Auth and PostgreSQL** handle accounts and saved data; a private **Cloudflare R2** bucket stores EPUB files.
 
-Features: name/email/password registration, email confirmation, password recovery, login/logout, private EPUB uploads, chapter navigation, search, notes, bookmarks, synced reading progress and appearance, device narration, buffered paid Aura-2 narration and Stripe subscription integration.
+Features: name/email/password registration, email confirmation, password recovery, login/logout, private EPUB uploads, chapter navigation, search, notes, bookmarks, synced reading progress and appearance, highlighted passage narration, selectable device and Aura-2 voices, continuous full-book reading and Stripe subscription integration.
 
 Free accounts have five book slots. Plus has unlimited book slots with a configurable monthly AI allowance (default 100,000 characters). Every EPUB is limited to 75 MiB. Subscription price and provider credentials must be configured before checkout becomes available. Voice here means narration, not a conversational assistant or voice cloning.
 

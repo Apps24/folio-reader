@@ -1,0 +1,21 @@
+.prose [data-block] {
+  border-radius: 6px;
+  transition: background-color .25s ease, box-shadow .25s ease;
+}
+
+.prose [data-block].narrating {
+  background: #b8d98a2e;
+  box-shadow: 0 0 0 5px #b8d98a2e;
+}
+
+.narrator select { max-width: 250px; }
+
+.fullReadBadge {
+  background: var(--accent);
+  border-radius: 4px;
+  color: #1b2814;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  padding: 3px 7px;
+}

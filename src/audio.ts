@@ -1,13 +1,48 @@
-export type SpeechUnit = { text: string; blockIndex: number; paragraphEnd: boolean };
+export type SpeechUnit = { text: string; blockIndexes: number[]; paragraphEnd: boolean };
 
 export function joinPassages(units: SpeechUnit[], max = 1800): SpeechUnit[] {
   const result: SpeechUnit[] = [];
   for (const unit of units) {
     const last = result.at(-1);
-    if (last && last.text.length + unit.text.length + 2 <= max) last.text += '\n\n' + unit.text;
+    if (last && last.text.length + unit.text.length + 2 <= max) {
+      last.text += '\n\n' + unit.text;
+      last.blockIndexes = [...new Set([...last.blockIndexes, ...unit.blockIndexes])];
+    }
     else result.push({ ...unit });
   }
   return result;
+}
+
+const spokenForms: [RegExp, string][] = [
+  [/\bMr\.(?=\s|$)/gi, 'Mister'],
+  [/\bMrs\.(?=\s|$)/gi, 'Missus'],
+  [/\bMs\.(?=\s|$)/gi, 'Miss'],
+  [/\bDr\.(?=\s|$)/gi, 'Doctor'],
+  [/\bProf\.(?=\s|$)/gi, 'Professor'],
+  [/\bRev\.(?=\s|$)/gi, 'Reverend'],
+  [/\bHon\.(?=\s|$)/gi, 'Honorable'],
+  [/\bCapt\.(?=\s|$)/gi, 'Captain'],
+  [/\bLt\.(?=\s|$)/gi, 'Lieutenant'],
+  [/\bCol\.(?=\s|$)/gi, 'Colonel'],
+  [/\bGen\.(?=\s|$)/gi, 'General'],
+  [/\bSgt\.(?=\s|$)/gi, 'Sergeant'],
+  [/\bGov\.(?=\s|$)/gi, 'Governor'],
+  [/\bPres\.(?=\s|$)/gi, 'President'],
+  [/\bSen\.(?=\s|$)/gi, 'Senator'],
+  [/\bRep\.(?=\s|$)/gi, 'Representative'],
+  [/\bJr\.(?=\s|$)/gi, 'Junior'],
+  [/\bSr\.(?=\s|$)/gi, 'Senior'],
+  [/\bEsq\.(?=\s|$)/gi, 'Esquire'],
+  [/\bSt\.(?=\s+[A-Z])/g, 'Saint'],
+  [/\be\.g\.(?=\s|$)/gi, 'for example'],
+  [/\bi\.e\.(?=\s|$)/gi, 'that is'],
+  [/\betc\.(?=\s|$)/gi, 'et cetera'],
+  [/\bvs\.(?=\s|$)/gi, 'versus'],
+];
+
+export function normalizeSpeechText(text: string): string {
+  return spokenForms.reduce((value, [pattern, replacement]) => value.replace(pattern, replacement), text)
+    .replace(/\s+/g, ' ').trim();
 }
 
 // Keep coherent paragraph passages, but never exceed the Worker request limit.
@@ -51,8 +86,10 @@ export async function requestAudio(url: string, text: string, speaker: string, r
 // Start the next request while the current passage plays; rejected prefetches are handled.
 export class AudioBufferQueue {
   private entries = new Map<number, Promise<{ blob?: Blob; error?: unknown }>>();
+  private load: (index: number, signal: AbortSignal) => Promise<Blob>;
+  private count: number;
   readonly controller = new AbortController();
-  constructor(private load: (index: number, signal: AbortSignal) => Promise<Blob>, private count: number) {}
+  constructor(load: (index: number, signal: AbortSignal) => Promise<Blob>, count: number) { this.load = load; this.count = count; }
   private prepare(index: number) {
     if (index >= this.count || this.entries.has(index)) return;
     this.entries.set(index, this.load(index, this.controller.signal).then(blob => ({ blob }), error => ({ error })));
