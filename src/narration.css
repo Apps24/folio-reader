@@ -4,8 +4,23 @@
 }
 
 .prose [data-block].narrating {
+  position: relative;
   background: #b8d98a2e;
-  box-shadow: 0 0 0 5px #b8d98a2e;
+  box-shadow: inset 4px 0 0 var(--accent), 0 0 0 5px #b8d98a2e;
+  padding-left: 14px;
+}
+
+.prose [data-block].narration-start::before {
+  content: '\25B6  READING NOW';
+  display: block;
+  color: #a9cd72;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  line-height: 1.4;
+  margin-bottom: 7px;
+  text-indent: 0;
 }
 
 .narrator select { max-width: 250px; }
